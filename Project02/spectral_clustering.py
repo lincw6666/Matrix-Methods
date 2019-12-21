@@ -1,18 +1,20 @@
 from argparse import ArgumentParser
 import scipy.io as sio
 import numpy as np
+from sklearn.cluster import KMeans
 import matplotlib.pyplot as plt
 import sys
-import time
 
 
+# Visualization.
+#
+# For problem 01: Show the points.
+# For problem 02: Show the points with color according to different cluster.
 class Visualizor:
     def __init__(self, title):
         _, ax = plt.subplots()
         ax.set_title(title)
-        # ax.grid(True, which='both')
-        ax.set_xlim(-1., 1.)
-        ax.set_ylim(-6.e-4, 4.e-4)
+        ax.grid(True, which='both')
         ax.axhline(y=0, color='k')
         ax.axvline(x=0, color='k')
         self.ax = ax
@@ -24,6 +26,10 @@ class Visualizor:
 
     def show(self):
         plt.show()
+
+    
+    def save(self, name):
+        plt.savefig(name+'.png')
 
 
 # Load arguments.
@@ -42,7 +48,9 @@ if args.pth is None:
 
 # Store data to a ndarray.
 # @dist: The distance matrix. dist.shape = 40 x 40
+# @node_num: The number of nodes.
 dist = sio.loadmat(args.pth)['data']
+node_num = dist.shape[0]
 
 ##############################################################################
 # Problem 01.
@@ -50,18 +58,24 @@ dist = sio.loadmat(args.pth)['data']
 # Generate a position matrix @pos with the centroid of @pos's is origin (0,0).
 # Plot a 2-d scatter plot. 
 #
-# @pos: Position matrix.
+# @pos: Position matrix. @pos[i] = x_i
 # @G: Defined as -0.5*(@dist - 1*D1^T - D1*1^T), where D1 is the first column
 #   of @dist.
 ##############################################################################
 # Let the position matrix as @pos. Define @G = @pos^T * @pos.
 # Assume that x1 = 0, we get @G = -0.5(@dist - 1*D1^T - D1*1^T).
 # Please note that G is a symmetric matrix.
-vec1 = np.ones(dist.shape[0])
-G = -0.5 * (dist - np.dot(vec1, dist[:, 1].T) - np.dot(dist[:, 1], vec1.T))
+vec1 = np.ones((node_num, 1))
+G = -0.5 * (dist \
+    - np.dot(vec1, dist[:, 0, None].T) \
+    - np.dot(dist[:, 0, None], vec1.T))
+# Eigenvalue decomposition: G = QAQ^T
 eig_val, eig_vec = np.linalg.eigh(G)
-pos = eig_vec[:, -2:]
-pos -= np.mean(pos, axis=0)
+pos = np.sqrt(eig_val[-2:]) * eig_vec[:, -2:]   # @pos = X = Q * sqrt(A)
+print('x1 =', pos[0])
+print('We can varify that when we get G by -0.5(D - 1*D1^T - D1*1^T), x1' +\
+    ' will always be 0.')
+pos -= np.mean(pos, axis=0) # Shift to the center.
 
 # Visualization.
 vis = Visualizor('Problem 01')
@@ -73,16 +87,19 @@ vis.show()
 #
 # Seperate the points into 2/3/4 classes by spectral clustering.
 #
-# @W: Edge weight matrix. w_ij = 1 - (dist[i, j]-min(dist))/(max(dist)-min(dist)).
-# @D: Node weight matrix. @D = @W^T * @W.
+# @W: Edge weight matrix.
+#   w_ij = 1 - (dist[i, j]-min(dist))/(max(dist)-min(dist)).
+# @D: Node weight matrix. @D = diag(@W * 1), where 1 is a 40 x 40 matrix.
+#   But in my implementation, I only calculate the diagonal part. I calculate
+#   @W * 1 with 1 as a 40 x 1 vector, then put the result on the diagonal of
+#   of a zero matrix.
 # @L: Normalized weight Laplacian.
 ##############################################################################
 # Setup node/edge weight matrix.
-min_dist = np.min(dist+np.diag(np.full(dist.shape[0], np.inf)))
+min_dist = np.min(dist+np.diag(np.full(node_num, np.inf)))
 max_dist = np.max(dist)
 W = 1 - (dist-min_dist) / (max_dist-min_dist)
-# np.fill_diagonal(W, 0.)
-diag_D = np.diag(np.dot(W.T, W))    # @diag_D: Diagonal of D.
+diag_D = np.matmul(W, vec1).T[0]  # @diag_D: Diagonal of @D.
 D = np.diag(diag_D)
 
 # Spectral clustering.
@@ -90,14 +107,19 @@ D = np.diag(diag_D)
 # I use normalized weight Laplacian.
 # 
 # @invh_D: D^-0.5. 'invh' stands for 'inverse' and 'half'.
+# @L: Normalized graph Laplacian matrix. @L = I - @invh_D*W*@invh_D.
 invh_D = np.diag(np.sqrt(1./diag_D))
-L = np.identity(dist.shape[0]) - np.dot(np.dot(invh_D, W), invh_D)
+L = np.identity(node_num) - np.dot(np.dot(invh_D, W), invh_D)
 eig_val, eig_vec = np.linalg.eigh(L)
-# Build classify vector @cls_vec.
-cls_vec = eig_vec[:, 1]
 
-# Visualization.
-vis = Visualizor('Problem 02 - 2 classes')
-vis.plot(pos[cls_vec<0., 0], pos[cls_vec<0, 1], 20, 'blue')
-vis.plot(pos[cls_vec>=0., 0], pos[cls_vec>=0, 1], 20, 'red')
-vis.show()
+# K classes classifier. Clustering by Kmeans.
+color = ['blue', 'red', 'green', 'cyan']
+for K in range(2, 5):
+    cls_vec = KMeans(
+        n_clusters=K, random_state=0
+        ).fit(eig_vec[:, 1:3]).labels_
+    # Visualization.
+    vis = Visualizor('Problem 02 - '+str(K)+' classes')
+    for l in range(K):
+        vis.plot(pos[cls_vec==l, 0], pos[cls_vec==l, 1], 20, color[l])
+    vis.show()
