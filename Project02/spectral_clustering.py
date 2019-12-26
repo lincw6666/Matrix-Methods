@@ -37,7 +37,8 @@ parser = ArgumentParser()
 parser.add_argument(
     '--path',
     help='The path of distance.mat.',
-    dest='pth'
+    dest='pth',
+    default='distance.mat'
 )
 
 args = parser.parse_args()
@@ -50,6 +51,7 @@ if args.pth is None:
 # @dist: The distance matrix. dist.shape = 40 x 40
 # @node_num: The number of nodes.
 dist = sio.loadmat(args.pth)['data']
+dist = dist ** 2
 node_num = dist.shape[0]
 
 ##############################################################################
@@ -115,11 +117,12 @@ eig_val, eig_vec = np.linalg.eigh(L)
 # K classes classifier. Clustering by Kmeans.
 color = ['blue', 'red', 'green', 'cyan']
 for K in range(2, 5):
+    eig_vec_limit = 3 if K != 3 else 4
     cls_vec = KMeans(
         n_clusters=K, random_state=0
-        ).fit(eig_vec[:, 1:3]).labels_
+        ).fit(eig_vec[:, 1:eig_vec_limit]).labels_
     # Visualization.
-    vis = Visualizor('Problem 02 - '+str(K)+' classes')
+    vis = Visualizor(f'Problem 02 - {K} classes')
     for l in range(K):
         vis.plot(pos[cls_vec==l, 0], pos[cls_vec==l, 1], 20, color[l])
     vis.show()
